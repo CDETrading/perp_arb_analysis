@@ -1,0 +1,4 @@
+1. fix spread into %
+2. listen to ws trade channel
+3. fix data source 
+4. 
