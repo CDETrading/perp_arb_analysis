@@ -12,11 +12,13 @@ import threading
 import matplotlib.pyplot as plt 
 from matplotlib.ticker import MaxNLocator
 import pickle
+from pathlib import Path
+
 
 async def ws_handler(id, url, msg, collective_data, start_event):
     print("ready to start")
     start_event.wait()
-    duration = 10  # in secs
+    duration = 300  # in secs
     print("start !")
     time.sleep(1)  # stop for main thread to ready
     
@@ -28,8 +30,7 @@ async def ws_handler(id, url, msg, collective_data, start_event):
                 await websocket.send(json.dumps(msg))
                 print(f"Sent: {msg}")
                 
-
-                while time.time() - start_time <= duration :
+                while True :
                     # Receive a response
                     recv = await websocket.recv()
                     
@@ -108,6 +109,8 @@ async def ws_handler(id, url, msg, collective_data, start_event):
 
                         except Exception as e :
                             print(f"error {e} at {id} and pass ")
+
+                break # stop collecting
                                     
         except websockets.exceptions.ConnectionClosedError as e:
             print(f"reconnect for {id}")   
@@ -120,16 +123,12 @@ def send_websocket_request(thread_id, ws_url, message, df, start_event):
     asyncio.run(ws_handler(thread_id, ws_url, message, df, start_event))
 
 
-if __name__ == "__main__":
 
+def production_thread(target_currency, base_currency="USDT"):
     # main thread
-    # threading
-    #nest_asyncio.apply()
-
+    
     start_event = threading.Event()
     ts = time.time_ns()
-    target_currency = "ETH"
-    base_currency = "USDT"
     threads = []
     ids = ["bitget", "htx", "gateio", "bybit"]
     urls = [ "wss://ws.bitget.com/v2/ws/public", 
@@ -142,8 +141,8 @@ if __name__ == "__main__":
             {"time" : ts, "channel" : "futures.book_ticker", "event" : "subscribe", "payload" : [f"{target_currency}_{base_currency}"]},
             {"op" :"subscribe", "args" : [f"orderbook.1.{target_currency}{base_currency}"],}
             ] 
-    dfs = [pd.DataFrame(columns=["local_ts", "bids", "asks"]) for _ in range(4)] # data storage 
-    sync_queues=  queue.Queue(maxsize=10000) # cross thread sharing queue 
+    sync_queues=  queue.Queue(maxsize=100000) # cross thread sharing queue 
+    
     # worker threads to collecting data
     for i in range(4):
         
@@ -152,26 +151,27 @@ if __name__ == "__main__":
         thread.start()
         
     print("All threads are ready. Starting in 1 seconds...")
-    time.sleep(1)  # Optional delay before starting
+    directory = Path(f"./data/{target_currency}")
+    directory.mkdir(parents=True, exist_ok=True)
+    current_directory = Path.cwd()
     start_event.set()  # Signal threads to start
-
-    # # main thread to collecting data
-    # prod_data_queues = [queue.Queue() for _ in range(4)]  # to store data from worker thread
-    # cache_data = [ 0 for _ in range(4) ]  # to cache data for each exchange 
+    
+    # main thread to collecting data
     start_time = int(time.time())
     # duration = 10
     try :
 
         while True :
-            time.sleep(600)  # collecting peroid 
+            time.sleep(60)  # collecting peroid 
             # Write queue data to a binary file
-            end_time = int(time.time())
-            with open(f"/home/timchen/perp_arb_analysis/data/{target_currency}_data_from_{start_time}_to_{end_time}.bin", "wb") as binary_file:
-                while not sync_queues.empty():
-                    data = sync_queues.get()
-                    pickle.dump(data, binary_file)  # Serialize and write each item to the file
-                    print(f"Written to file: {data}")
-            start_time = end_time
+            if sync.qsize() >= 100000 * 0.8 
+                end_time = int(time.time())
+                with open(f"{current_directory}/data/{target_currency}/{target_currency}_data_from_{start_time}_to_{end_time}.bin", "wb") as binary_file:
+                    while not sync_queues.empty():
+                        data = sync_queues.get()
+                        pickle.dump(data, binary_file)  # Serialize and write each item to the file
+                        #print(f"Written to file: {data}")
+                start_time = end_time
                     
             
 
@@ -186,3 +186,17 @@ if __name__ == "__main__":
         thread.join()
 
     print("All threads have finished.")
+
+
+
+if __name__ == "__main__":
+    targets = ["ETH", "BTC", "XRP", "DODG"]
+    threads = []
+    for i in range(4):
+        
+        thread = threading.Thread(target=production_thread, args=(targets[i], "USDT"))
+        threads.append(thread)
+        thread.start()
+
+    for thread in threads:
+        thread.join()
