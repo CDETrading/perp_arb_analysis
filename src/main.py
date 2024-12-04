@@ -190,7 +190,7 @@ def production_thread(target_currency, base_currency="USDT"):
 
 
 if __name__ == "__main__":
-    targets = ["ETH", "BTC", "XRP", "DODG"]
+    targets = ["ETH", "BTC", "XRP", "DODE"]
     threads = []
     for i in range(4):
         
