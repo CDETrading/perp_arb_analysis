@@ -21,14 +21,13 @@ async def ws_handler(id, url, msg, collective_data, start_event):
     time.sleep(1)  # stop for main thread to ready
     
     start_time = time.time()
-    while time.time() - start_time <= duration :
+    while True:
         try :
             async with websockets.connect(url) as websocket:
                 # Send a message
                 await websocket.send(json.dumps(msg))
                 print(f"Sent: {msg}")
-                best_bid = 0
-                best_ask = 0
+                
 
                 while time.time() - start_time <= duration :
                     # Receive a response
