@@ -164,7 +164,7 @@ def production_thread(target_currency, base_currency="USDT"):
         while True :
             time.sleep(60)  # collecting peroid 
             # Write queue data to a binary file
-            if sync.qsize() >= 100000 * 0.8 
+            if sync_queues.qsize() >= 100000 * 0.8 
                 end_time = int(time.time())
                 with open(f"{current_directory}/data/{target_currency}/{target_currency}_data_from_{start_time}_to_{end_time}.bin", "wb") as binary_file:
                     while not sync_queues.empty():
