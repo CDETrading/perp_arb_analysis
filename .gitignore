@@ -163,3 +163,9 @@ cython_debug/
 
 # txt file
 TODO.txt
+
+# data
+data/
+
+# jupyter
+*.ipynb

@@ -13,6 +13,7 @@ import matplotlib.pyplot as plt
 from matplotlib.ticker import MaxNLocator
 import pickle
 from pathlib import Path
+from datetime import datetime
 
 
 async def ws_handler(id, url, msg, collective_data, start_event):
@@ -151,27 +152,30 @@ def production_thread(target_currency, base_currency="USDT"):
         thread.start()
         
     print("All threads are ready. Starting in 1 seconds...")
-    directory = Path(f"./data/{target_currency}")
+    current_date = datetime.now().strftime("%Y-%m-%d")
+    directory = Path(f"./data/{target_currency}/{current_date}")
     directory.mkdir(parents=True, exist_ok=True)
     current_directory = Path.cwd()
     start_event.set()  # Signal threads to start
     
     # main thread to collecting data
-    start_time = int(time.time())
+    #start_time = int(time.time())
+    data_cnt = 0
     # duration = 10
     try :
 
         while True :
-            time.sleep(60)  # collecting peroid 
+            time.sleep(60)  # waiting peroid 
             # Write queue data to a binary file
-            if sync_queues.qsize() >= 100000 * 0.8 :
-                end_time = int(time.time())
-                with open(f"{current_directory}/data/{target_currency}/{target_currency}_data_from_{start_time}_to_{end_time}.bin", "wb") as binary_file:
+            if sync_queues.qsize() >= 150000 * 0.8 :
+                #end_time = int(time.time())
+                with open(f"{current_directory}/data/{target_currency}/{current_date}/data-{data_cnt}.bin", "wb") as binary_file:
                     while not sync_queues.empty():
                         data = sync_queues.get()
                         pickle.dump(data, binary_file)  # Serialize and write each item to the file
                         #print(f"Written to file: {data}")
-                start_time = end_time
+                data_cnt += 1
+                #start_time = end_time
                     
             
 
