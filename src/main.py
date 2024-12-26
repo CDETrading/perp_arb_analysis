@@ -46,7 +46,7 @@ async def ws_handler(id, url, msg, collective_data, start_event):
                             new_data =  {"bids" : float(response["tick"]["bids"][0][0]), "asks" : float(response["tick"]["asks"][0][0])}
                             response["exchange"] = "htx"
                             collective_data.put(response)
-                            print(response)
+                            #print(response)
                             #collective_data.loc[ts] = {"bids" : float(response["tick"]["bids"][0][0]), "asks" : float(response["tick"]["asks"][0][0])}
 
                         except websockets.exceptions.ConnectionClosedError as e:
@@ -80,7 +80,7 @@ async def ws_handler(id, url, msg, collective_data, start_event):
                                 new_data =  {"bids" : float(response["result"]["b"]), "asks" : float(response["result"]["a"])}
                                 response["exchange"] = "gateio"
                                 collective_data.put(response)
-                                print(response)
+                                #print(response)
                                 #collective_data.loc[ts] = {"bids" : float(response["result"]["b"]), "asks" : float(response["result"]["a"])}
                             elif id == "bybit":
                                 
@@ -92,7 +92,7 @@ async def ws_handler(id, url, msg, collective_data, start_event):
                                     #collective_data.loc[ts] = {"bids" : float(best_bid), "asks" : float(best_ask)}
                                     #new_data = {"bids" : best_bid, "asks" : best_ask}
                                     collective_data.put(response)
-                                    print(response)
+                                    #print(response)
                                 except IndexError as e :
                                     if response["data"]['b'] != []:
                                         response["data"]['b'][0][0] =  float(response["data"]['b'][0][0])
@@ -102,7 +102,7 @@ async def ws_handler(id, url, msg, collective_data, start_event):
                                     # new_data = {"bids" : float(best_bid), "asks" : float(best_ask)}
                                     response["exchange"] = "bybit"
                                     collective_data.put(response)
-                                    print(response)
+                                    #print(response)
                                     #collective_data.loc[ts] = {"bids" : float(best_bid), "asks" : float(best_ask)}
                                     
                             elif id == "bitget":
@@ -111,7 +111,7 @@ async def ws_handler(id, url, msg, collective_data, start_event):
                                 #new_data =  {"bids" : float(response["data"][0]['bids'][0][0]), "asks" :  float(response["data"][0]['asks'][0][0])}
                                 response["exchange"] = "bitget"
                                 collective_data.put(response)
-                                print(response)
+                                #print(response)
                                 #collective_data.loc[ts] = {"bids" : float(response["data"][0]['bids'][0][0]), "asks" :  float(response["data"][0]['asks'][0][0])}
 
                         except websockets.exceptions.ConnectionClosedError as e:
