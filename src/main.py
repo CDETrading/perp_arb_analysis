@@ -44,7 +44,9 @@ async def ws_handler(id, url, msg, collective_data, start_event):
                             ts = time.time_ns()
                             response["local_ts"] = ts
                             new_data =  {"bids" : float(response["tick"]["bids"][0][0]), "asks" : float(response["tick"]["asks"][0][0])}
+                            response["exchange"] = "htx"
                             collective_data.put(response)
+                            print(response)
                             #collective_data.loc[ts] = {"bids" : float(response["tick"]["bids"][0][0]), "asks" : float(response["tick"]["asks"][0][0])}
 
                         except websockets.exceptions.ConnectionClosedError as e:
@@ -76,17 +78,21 @@ async def ws_handler(id, url, msg, collective_data, start_event):
                             response["local_ts"] = ts
                             if id == "gateio" :
                                 new_data =  {"bids" : float(response["result"]["b"]), "asks" : float(response["result"]["a"])}
+                                response["exchange"] = "gateio"
                                 collective_data.put(response)
+                                print(response)
                                 #collective_data.loc[ts] = {"bids" : float(response["result"]["b"]), "asks" : float(response["result"]["a"])}
                             elif id == "bybit":
                                 
                                 
                                 try :
+                                    response["exchange"] = "bybit"
                                     response["data"]['a'][0][0] =  float(response["data"]['a'][0][0])
                                     response["data"]['b'][0][0] =  float(response["data"]['b'][0][0])
                                     #collective_data.loc[ts] = {"bids" : float(best_bid), "asks" : float(best_ask)}
                                     #new_data = {"bids" : best_bid, "asks" : best_ask}
                                     collective_data.put(response)
+                                    print(response)
                                 except IndexError as e :
                                     if response["data"]['b'] != []:
                                         response["data"]['b'][0][0] =  float(response["data"]['b'][0][0])
@@ -94,14 +100,18 @@ async def ws_handler(id, url, msg, collective_data, start_event):
                                         response["data"]['a'][0][0] =  float(response["data"]['a'][0][0])
                                     
                                     # new_data = {"bids" : float(best_bid), "asks" : float(best_ask)}
+                                    response["exchange"] = "bybit"
                                     collective_data.put(response)
+                                    print(response)
                                     #collective_data.loc[ts] = {"bids" : float(best_bid), "asks" : float(best_ask)}
                                     
                             elif id == "bitget":
                                 response["data"][0]['bids'][0][0] = float(response["data"][0]['bids'][0][0])
                                 response["data"][0]['asks'][0][0] = float(response["data"][0]['asks'][0][0])
                                 #new_data =  {"bids" : float(response["data"][0]['bids'][0][0]), "asks" :  float(response["data"][0]['asks'][0][0])}
+                                response["exchange"] = "bitget"
                                 collective_data.put(response)
+                                print(response)
                                 #collective_data.loc[ts] = {"bids" : float(response["data"][0]['bids'][0][0]), "asks" :  float(response["data"][0]['asks'][0][0])}
 
                         except websockets.exceptions.ConnectionClosedError as e:
