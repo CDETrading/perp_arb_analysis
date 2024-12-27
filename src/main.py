@@ -177,9 +177,9 @@ def production_thread(target_currency, base_currency="USDT"):
         while True :
             time.sleep(60)  # waiting peroid 
             # Write queue data to a binary file
-            if sync_queues.qsize() >= 150000 * 0.8 :
+            if sync_queues.qsize() >= 100000 * 0.8 :
                 #end_time = int(time.time())
-                with open(f"{current_directory}/data/{target_currency}/{current_date}/data-{data_cnt}.bin", "wb") as binary_file:
+                with open(f"{current_directory}/data/{target_currency}/{current_date}/data_{data_cnt}_.bin", "wb") as binary_file:
                     while not sync_queues.empty():
                         data = sync_queues.get()
                         pickle.dump(data, binary_file)  # Serialize and write each item to the file
