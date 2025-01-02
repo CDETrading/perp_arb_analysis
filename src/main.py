@@ -13,7 +13,7 @@ import matplotlib.pyplot as plt
 from matplotlib.ticker import MaxNLocator
 import pickle
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timedelta
 
 
 async def ws_handler(id, url, msg, collective_data, start_event):
@@ -162,6 +162,7 @@ def production_thread(target_currency, base_currency="USDT"):
         thread.start()
         
     print("All threads are ready. Starting in 1 seconds...")
+    start_time = int(time.time())
     current_date = datetime.now().strftime("%Y-%m-%d")
     directory = Path(f"./data/{target_currency}/{current_date}")
     directory.mkdir(parents=True, exist_ok=True)
@@ -169,25 +170,33 @@ def production_thread(target_currency, base_currency="USDT"):
     start_event.set()  # Signal threads to start
     
     # main thread to collecting data
-    #start_time = int(time.time())
+    
     data_cnt = 0
     # duration = 10
     try :
 
         while True :
-            time.sleep(60)  # waiting peroid 
+            time.sleep(30)  # waiting peroid 
             # Write queue data to a binary file
-            if sync_queues.qsize() >= 100000 * 0.8 :
+            #if sync_queues.qsize() >= 100000 * 0.8 :
                 #end_time = int(time.time())
-                with open(f"{current_directory}/data/{target_currency}/{current_date}/data_{data_cnt}_.bin", "wb") as binary_file:
-                    while not sync_queues.empty():
-                        data = sync_queues.get()
-                        pickle.dump(data, binary_file)  # Serialize and write each item to the file
-                        #print(f"Written to file: {data}")
-                data_cnt += 1
-                #start_time = end_time
-                    
+            if time.time() - start_time >= 86400 :  # within one day
+
+                start_time = time.time()  # update start time
+                current_date = datetime.strptime(current_date, "%Y-%m-%d")
+                current_date =  current_date + timedelta(days=1)
+                current_date = current_date.strftime("%Y-%m-%d")
+                directory = Path(f"./data/{target_currency}/{current_date}")
+                directory.mkdir(parents=True, exist_ok=True)
             
+            
+            with open(f"{current_directory}/data/{target_currency}/{current_date}/{data_cnt}_.bin", "wb") as binary_file:
+                while not sync_queues.empty():
+                    data = sync_queues.get()
+                    pickle.dump(data, binary_file)  # Serialize and write each item to the file
+                    print(f"Written to file: data_{data_cnt}_.bin")
+            data_cnt += 1
+                        
 
     except KeyboardInterrupt:
         print("stop by user")
