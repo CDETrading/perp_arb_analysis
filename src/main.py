@@ -15,11 +15,19 @@ import pickle
 from pathlib import Path
 from datetime import datetime, timedelta
 
+class Response() :
+
+    def __init__(self, exchange, ts, response):
+        self.exchange = exchange
+        self.ts = ts
+        self.data = response
+
+
 
 async def ws_handler(id, url, msg, collective_data, start_event):
     print("ready to start")
     start_event.wait()
-    duration = 300  # in secs
+    #duration = 300  # in secs
     print("start !")
     time.sleep(1)  # stop for main thread to ready
     
@@ -30,22 +38,33 @@ async def ws_handler(id, url, msg, collective_data, start_event):
                 # Send a message
                 await websocket.send(json.dumps(msg))
                 print(f"Sent: {msg}")
+                ts = time.time_ns()  # universial local ts
                 
                 while True :
                     # Receive a response
                     recv = await websocket.recv()
+                    #ts = time.time_ns()  # universial local ts
                     
                     if isinstance(recv, bytes) :
                         # for binary data
-                        decompress_data = gzip.decompress(recv)
-                        response = json.loads(decompress_data.decode("utf-8"))
+                        decompress_data = gzip.decompress(recv).decode("utf-8") # parse to string
+                        response_ = Response("htx", ts, decompress_data) 
+                        collective_data.put(response_)
+                        response = json.loads(decompress_data)  # !!!
+                        #print(response)
                         
+                        # if decompress_data.find("ping") > 0:
+                        #     pong = decompress_data[(decompress_data.find("ping")+7) :  decompress_data.find(',')]
+                        #     print("pongpong", pong)
+
+
                         try :
-                            ts = time.time_ns()
+                            
                             response["local_ts"] = ts
-                            new_data =  {"bids" : float(response["tick"]["bids"][0][0]), "asks" : float(response["tick"]["asks"][0][0])}
+                            new_data =  {"bids" : float(response["tick"]["bids"][0][0]), "asks" : float(response["tick"]["asks"][0][0])}  # !!!
                             response["exchange"] = "htx"
-                            collective_data.put(response)
+                            
+                            collective_data.put(response_)
                             #print(response)
                             #collective_data.loc[ts] = {"bids" : float(response["tick"]["bids"][0][0]), "asks" : float(response["tick"]["asks"][0][0])}
 
@@ -56,44 +75,55 @@ async def ws_handler(id, url, msg, collective_data, start_event):
                             
                         except Exception as e :
                             print(f"error {e} at htx")
+                            print(f"errpr msg : {decompress_data}")
+                            
                         
                             if "ping" in response.keys():
                                 # Extract the ping timestamp
                                 ping_timestamp = response["ping"]
-                                
+                                pong = decompress_data[(decompress_data.find("ping")+6) :  decompress_data.find(',')]
+                                print("pong " ,  pong )     
                                 # Create and send the pong response
                                 pong_message = {"pong": ping_timestamp}
                                 await websocket.send(json.dumps(pong_message))
-                                print(f"Sent pong msg: {pong_message}")
+                                #print(f"Sent pong msg: {pong_message}")
                             
 
                     else :
                         # other exchanges
-                        response = json.loads(recv)    
+                        response = json.loads(recv)  
                         # print(f"Received at {id}")
                         # print(response) 
                         
                         try :
-                            ts = time.time_ns()
+                            #ts = time.time_ns()
                             response["local_ts"] = ts
                             if id == "gateio" :
-                                new_data =  {"bids" : float(response["result"]["b"]), "asks" : float(response["result"]["a"])}
-                                response["exchange"] = "gateio"
-                                collective_data.put(response)
-                                #print(response)
-                                #collective_data.loc[ts] = {"bids" : float(response["result"]["b"]), "asks" : float(response["result"]["a"])}
+                                 
+                                    response_ = Response("gateio", ts, response)
+                                    new_data =  {"bids" : float(response["result"]["b"]), "asks" : float(response["result"]["a"])}
+                                    response["exchange"] = "gateio"
+                                    collective_data.put(response)
+                                    #print(response)
+                                    #collective_data.loc[ts] = {"bids" : float(response["result"]["b"]), "asks" : float(response["result"]["a"])}
+                                
                             elif id == "bybit":
                                 
                                 
                                 try :
+                                
                                     response["exchange"] = "bybit"
                                     response["data"]['a'][0][0] =  float(response["data"]['a'][0][0])
                                     response["data"]['b'][0][0] =  float(response["data"]['b'][0][0])
                                     #collective_data.loc[ts] = {"bids" : float(best_bid), "asks" : float(best_ask)}
                                     #new_data = {"bids" : best_bid, "asks" : best_ask}
-                                    collective_data.put(response)
+                                    collective_data.put(response_)
                                     #print(response)
+                                    response_ = Response("bybit", ts, response)
                                 except IndexError as e :
+                                    # bids or asks is missing
+                                    print(f"error {e} at bybit")
+                                    print(f"error msg : {response}")
                                     if response["data"]['b'] != []:
                                         response["data"]['b'][0][0] =  float(response["data"]['b'][0][0])
                                     if  response["data"]['a'] != []:
@@ -101,16 +131,19 @@ async def ws_handler(id, url, msg, collective_data, start_event):
                                     
                                     # new_data = {"bids" : float(best_bid), "asks" : float(best_ask)}
                                     response["exchange"] = "bybit"
-                                    collective_data.put(response)
+                                    response_ = Response("bybit", ts, response)
+                                    collective_data.put(response_)
                                     #print(response)
                                     #collective_data.loc[ts] = {"bids" : float(best_bid), "asks" : float(best_ask)}
                                     
                             elif id == "bitget":
+                                
                                 response["data"][0]['bids'][0][0] = float(response["data"][0]['bids'][0][0])
                                 response["data"][0]['asks'][0][0] = float(response["data"][0]['asks'][0][0])
                                 #new_data =  {"bids" : float(response["data"][0]['bids'][0][0]), "asks" :  float(response["data"][0]['asks'][0][0])}
                                 response["exchange"] = "bitget"
-                                collective_data.put(response)
+                                response_ = Response("bitget", ts, response)
+                                collective_data.put(response_)
                                 #print(response)
                                 #collective_data.loc[ts] = {"bids" : float(response["data"][0]['bids'][0][0]), "asks" :  float(response["data"][0]['asks'][0][0])}
 
@@ -119,7 +152,8 @@ async def ws_handler(id, url, msg, collective_data, start_event):
                             raise e 
 
                         except Exception as e :
-                            print(f"error {e} at {id} and pass ")
+                            print(f"error {e} at {id}")
+                            print(f"error msg : {response}")
 
                 break # stop collecting
                                     
@@ -127,7 +161,6 @@ async def ws_handler(id, url, msg, collective_data, start_event):
             print(f"reconnect for {id}")   
             
                 
-    print(f"{id} finish")
     return
 
 def send_websocket_request(thread_id, ws_url, message, df, start_event):
