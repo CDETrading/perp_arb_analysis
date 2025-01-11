@@ -3,7 +3,7 @@ import numpy as np
 import queue
 import requests
 import json
-import asyncio
+import asyncio 
 import websockets
 import nest_asyncio
 import gzip
@@ -16,11 +16,13 @@ from pathlib import Path
 from datetime import datetime, timedelta
 
 class Response() :
-
-    def __init__(self, exchange, ts, response):
+    
+    
+    def __init__(self, exchange, ts):
         self.exchange = exchange
         self.ts = ts
-        self.data = response
+        self.data = ''
+    
 
 
 
@@ -31,70 +33,75 @@ async def ws_handler(id, url, msg, collective_data, start_event):
     print("start !")
     time.sleep(1)  # stop for main thread to ready
     
-    start_time = time.time()
+    #start_time = time.time()
     while True:
         try :
             async with websockets.connect(url) as websocket:
                 # Send a message
                 await websocket.send(json.dumps(msg))
                 print(f"Sent: {msg}")
-                ts = time.time_ns()  # universial local ts
                 
                 while True :
                     # Receive a response
                     recv = await websocket.recv()
-                    #ts = time.time_ns()  # universial local ts
+                    ts = time.time_ns()  # universial local ts
+                    response_ = Response(id, ts)
                     
                     if isinstance(recv, bytes) :
                         # for binary data
                         decompress_data = gzip.decompress(recv).decode("utf-8") # parse to string
-                        response_ = Response("htx", ts, decompress_data) 
+                        response_ .data = decompress_data
                         collective_data.put(response_)
-                        response = json.loads(decompress_data)  # !!!
+                        #response = json.loads(decompress_data)  # !!!
                         #print(response)
                         
-                        # if decompress_data.find("ping") > 0:
-                        #     pong = decompress_data[(decompress_data.find("ping")+7) :  decompress_data.find(',')]
-                        #     print("pongpong", pong)
+                        if decompress_data.find("ping") > 0:
+                            pong = decompress_data[(decompress_data.find("ping")+6) :  decompress_data.find(',')]
+                            print("pong " ,  pong )     
+                            # Create and send the pong response
+                            pong_message = {"pong": int(pong)}
+                            await websocket.send(json.dumps(pong_message))
 
+                        # try :
+                            
+                        #     response["local_ts"] = ts
+                        #     new_data =  {"bids" : float(response["tick"]["bids"][0][0]), "asks" : float(response["tick"]["asks"][0][0])}  # !!!
+                        #     response["exchange"] = "htx"
+                            
+                        #     collective_data.put(response_)
+                        #     #print(response)
+                        #     #collective_data.loc[ts] = {"bids" : float(response["tick"]["bids"][0][0]), "asks" : float(response["tick"]["asks"][0][0])}
 
-                        try :
-                            
-                            response["local_ts"] = ts
-                            new_data =  {"bids" : float(response["tick"]["bids"][0][0]), "asks" : float(response["tick"]["asks"][0][0])}  # !!!
-                            response["exchange"] = "htx"
-                            
-                            collective_data.put(response_)
-                            #print(response)
-                            #collective_data.loc[ts] = {"bids" : float(response["tick"]["bids"][0][0]), "asks" : float(response["tick"]["asks"][0][0])}
-
-                        except websockets.exceptions.ConnectionClosedError as e:
-                            print(f"Connection failed to connect: {e}")   
-                            raise e 
+                        # except websockets.exceptions.ConnectionClosedError as e:
+                        #     print(f"Connection failed to connect: {e}")   
+                        #     raise e 
                             
                             
-                        except Exception as e :
-                            print(f"error {e} at htx")
-                            print(f"errpr msg : {decompress_data}")
+                        # except Exception as e :
+                        #     print(f"error {e} at htx")
+                        #     print(f"errpr msg : {decompress_data}")
                             
                         
-                            if "ping" in response.keys():
-                                # Extract the ping timestamp
-                                ping_timestamp = response["ping"]
-                                pong = decompress_data[(decompress_data.find("ping")+6) :  decompress_data.find(',')]
-                                print("pong " ,  pong )     
-                                # Create and send the pong response
-                                pong_message = {"pong": ping_timestamp}
-                                await websocket.send(json.dumps(pong_message))
-                                #print(f"Sent pong msg: {pong_message}")
+                        #     if "ping" in response.keys():
+                        #         # Extract the ping timestamp
+                        #         ping_timestamp = response["ping"]
+                        #         pong = decompress_data[(decompress_data.find("ping")+6) :  decompress_data.find(',')]
+                        #         print("pong " ,  pong )     
+                        #         # Create and send the pong response
+                        #         pong_message = {"pong": int(pong)}
+                        #         await websocket.send(json.dumps(pong_message))
+                        #         #print(f"Sent pong msg: {pong_message}")
                             
 
                     else :
                         # other exchanges
-                        response = json.loads(recv)  
+                        #response = json.loads(recv)  
                         # print(f"Received at {id}")
                         # print(response) 
+                        response_.data = recv
+                        collective_data.put(response_)
                         
+                        '''
                         try :
                             #ts = time.time_ns()
                             response["local_ts"] = ts
@@ -154,8 +161,8 @@ async def ws_handler(id, url, msg, collective_data, start_event):
                         except Exception as e :
                             print(f"error {e} at {id}")
                             print(f"error msg : {response}")
-
-                break # stop collecting
+                        '''
+               
                                     
         except websockets.exceptions.ConnectionClosedError as e:
             print(f"reconnect for {id}")   
@@ -221,6 +228,7 @@ def production_thread(target_currency, base_currency="USDT"):
                     current_date = current_date.strftime("%Y-%m-%d")
                     directory = Path(f"./data/{target_currency}/{current_date}")
                     directory.mkdir(parents=True, exist_ok=True)
+                    data_cnt = 0  # reset
                 
                 
                 with open(f"{current_directory}/data/{target_currency}/{current_date}/{data_cnt}_.bin", "wb") as binary_file:
