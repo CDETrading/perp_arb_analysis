@@ -167,7 +167,7 @@ TODO.txt
 # data
 data/
 picture/
-report/
-
+in-sample-report/
+out-sample-report/
 # jupyter
 *.ipynb
