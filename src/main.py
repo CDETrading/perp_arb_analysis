@@ -9,6 +9,7 @@ import nest_asyncio
 import gzip
 import time
 import threading
+import logging
 import matplotlib.pyplot as plt 
 from matplotlib.ticker import MaxNLocator
 import pickle
@@ -30,22 +31,25 @@ async def ws_handler(id, url, msg, collective_data, start_event):
     print("ready to start")
     start_event.wait()
     #duration = 300  # in secs
-    print("start !")
+    
+    print(f"start ! {id}" )
     time.sleep(1)  # stop for main thread to ready
     
-    #start_time = time.time()
+    start_time = time.time()
     while True:
         try :
             async with websockets.connect(url) as websocket:
                 # Send a message
                 await websocket.send(json.dumps(msg))
-                print(f"Sent: {msg}")
+                logging.info(f"Sent: {msg}")
                 
                 while True :
                     # Receive a response
                     recv = await websocket.recv()
                     ts = time.time_ns()  # universial local ts
                     response_ = Response(id, ts)
+                    #logging.info(recv)
+                    current_time = time.time()  # for ping pong
                     
                     if isinstance(recv, bytes) :
                         # for binary data
@@ -57,11 +61,12 @@ async def ws_handler(id, url, msg, collective_data, start_event):
                         
                         if decompress_data.find("ping") > 0:
                             pong = decompress_data[(decompress_data.find("ping")+6) :  decompress_data.find(',')]
-                            print("pong " ,  pong )     
+                            logging.info(f"pong : {pong} " )     
                             # Create and send the pong response
                             pong_message = {"pong": int(pong)}
                             await websocket.send(json.dumps(pong_message))
 
+                        '''
                         # try :
                             
                         #     response["local_ts"] = ts
@@ -91,15 +96,28 @@ async def ws_handler(id, url, msg, collective_data, start_event):
                         #         pong_message = {"pong": int(pong)}
                         #         await websocket.send(json.dumps(pong_message))
                         #         #print(f"Sent pong msg: {pong_message}")
-                            
+                        '''  
 
                     else :
                         # other exchanges
-                        #response = json.loads(recv)  
-                        # print(f"Received at {id}")
-                        # print(response) 
+                        
                         response_.data = recv
                         collective_data.put(response_)
+
+                    if current_time - start_time >= 540 :   # 9 mins
+                       # ping-pong
+                        if id == "gateio" :
+                            ping_msg = {"time" : f"{int(current_time)}", "channel" : "futures.ping"}
+                            await websocket.send(json.dumps(ping_msg))
+                            logging.info(f"Sent: {ping_msg}")
+
+                        elif id == "bybit" : 
+                            ping_msg = { "op": "ping"}
+                            await websocket.send(json.dumps(ping_msg))
+                            logging.info(f"Sent: {ping_msg}")
+
+
+                        start_time = current_time  # update time
                         
                         '''
                         try :
@@ -165,7 +183,7 @@ async def ws_handler(id, url, msg, collective_data, start_event):
                
                                     
         except websockets.exceptions.ConnectionClosedError as e:
-            print(f"reconnect for {id}")   
+            logging.info(f"reconnect for {id}")   
             
                 
     return
@@ -201,8 +219,9 @@ def production_thread(target_currency, base_currency="USDT"):
         threads.append(thread)
         thread.start()
         
-    print("All threads are ready. Starting in 1 seconds...")
+    logging.info("All threads are ready. Starting in 1 seconds...")
     start_time = int(time.time())
+    last_write_time = start_time
     current_date = datetime.now().strftime("%Y-%m-%d")
     directory = Path(f"./data/{target_currency}/{current_date}")
     directory.mkdir(parents=True, exist_ok=True)
@@ -212,15 +231,18 @@ def production_thread(target_currency, base_currency="USDT"):
     # main thread to collecting data
     
     data_cnt = 0
+    log_cnt = 0
     # duration = 10
     try :
 
         while True :
-            time.sleep(30)  # waiting peroid 
+            #time.sleep(30)  # waiting peroid 
             # Write queue data to a binary file
-            if sync_queues.qsize() >= 100000 * 0.8 :
+            #if sync_queues.qsize() >= 100000 * 0.8 :
+            current_time = time.time()
+            if current_time - last_write_time >= 600 :  # write file every ten minutes 
                 #end_time = int(time.time())
-                if time.time() - start_time >= 86400 :  # over one day
+                if current_time - start_time >= 86400 :  # over one day
 
                     start_time = time.time()  # update start time
                     current_date = datetime.strptime(current_date, "%Y-%m-%d")
@@ -229,15 +251,29 @@ def production_thread(target_currency, base_currency="USDT"):
                     directory = Path(f"./data/{target_currency}/{current_date}")
                     directory.mkdir(parents=True, exist_ok=True)
                     data_cnt = 0  # reset
+
+                    logger = logging.getLogger()  # Get the root logger
+                    for handler in logger.handlers[:]:  # Iterate over a copy of the list
+                        logger.removeHandler(handler)  # Remove existing handlers
+
+                    # Add a new FileHandler with the new filename
+                    log_cnt += 1
+                    new_handler = logging.FileHandler(f"./logs/output_{log_cnt}.log", mode="w")
+                    new_handler.setLevel(logging.INFO)
+                    new_handler.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
+                    logger.addHandler(new_handler)
+                                
                 
-                
-                with open(f"{current_directory}/data/{target_currency}/{current_date}/{data_cnt}_.bin", "wb") as binary_file:
+                with open(f"{current_directory}/data/{target_currency}/{current_date}/{data_cnt}.bin", "wb") as binary_file:
                     while not sync_queues.empty():
                         data = sync_queues.get()
                         pickle.dump(data, binary_file)  # Serialize and write each item to the file
-                        print(f"Written to file: data_{data_cnt}_.bin")
-                data_cnt += 1
-                        
+                    logging.info(f"Written to file: {data_cnt}.bin")
+                
+                
+                data_cnt += 1  # upadte counter 
+                last_write_time = current_time  # update write time
+                         
 
     except KeyboardInterrupt:
         print("stop by user")
@@ -254,6 +290,17 @@ def production_thread(target_currency, base_currency="USDT"):
 
 
 if __name__ == "__main__":
+     # Configure the logging system
+    directory = Path(f"./logs/")
+    directory.mkdir(parents=True, exist_ok=True)
+    logging.basicConfig(
+    filename="./logs/output_0.log",  # Log file name
+    filemode="w",           # Overwrite the file on each run, use "a" for append
+    level=logging.INFO,    # Set the log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+    format="%(asctime)s - %(levelname)s - %(message)s"  # Log message format
+    )
+
+
     targets = ["ETH", "BTC", "XRP", "DOGE"]
     threads = []
     for i in range(4):

@@ -163,7 +163,7 @@ cython_debug/
 
 # txt file
 TODO.txt
-
+/logs
 # data
 data/
 picture/
