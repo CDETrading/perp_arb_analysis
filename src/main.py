@@ -24,9 +24,6 @@ class Response() :
         self.ts = ts
         self.data = ''
     
-
-
-
 async def ws_handler(id, url, msg, collective_data, start_event):
     print("ready to start")
     start_event.wait()
@@ -61,7 +58,7 @@ async def ws_handler(id, url, msg, collective_data, start_event):
                         
                         if decompress_data.find("ping") > 0:
                             pong = decompress_data[(decompress_data.find("ping")+6) :  decompress_data.find(',')]
-                            logging.info(f"pong : {pong} " )     
+                            print(f"pong : {pong} " )     
                             # Create and send the pong response
                             pong_message = {"pong": int(pong)}
                             await websocket.send(json.dumps(pong_message))
@@ -183,7 +180,11 @@ async def ws_handler(id, url, msg, collective_data, start_event):
                
                                     
         except websockets.exceptions.ConnectionClosedError as e:
-            logging.info(f"reconnect for {id}")   
+            logging.info(f"reconnect for {id}") 
+
+        except asyncio.TimeoutError:
+            print(f"Timeout occurred for {id}. Retrying...")
+            await asyncio.sleep(5)  
             
                 
     return
