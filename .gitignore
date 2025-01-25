@@ -169,5 +169,6 @@ data/
 picture/
 in-sample-report/
 out-sample-report/
+report/
 # jupyter
 *.ipynb
