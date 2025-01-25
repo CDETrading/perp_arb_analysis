@@ -1,24 +1,17 @@
-import pandas as pd
-import numpy as np
 import queue
-import requests
 import json
 import asyncio 
 import websockets
-import nest_asyncio
 import gzip
 import time
+import os
 import threading
 import logging
-import matplotlib.pyplot as plt 
-from matplotlib.ticker import MaxNLocator
 import pickle
 from pathlib import Path
 from datetime import datetime, timedelta
 
 class Response() :
-    
-    
     def __init__(self, exchange, ts):
         self.exchange = exchange
         self.ts = ts
@@ -35,7 +28,7 @@ async def ws_handler(id, url, msg, collective_data, start_event):
     start_time = time.time()
     while True:
         try :
-            async with websockets.connect(url) as websocket:
+            async with websockets.connect(url, ping_interval=10) as websocket:
                 # Send a message
                 await websocket.send(json.dumps(msg))
                 logging.info(f"Sent: {msg}")
@@ -45,7 +38,6 @@ async def ws_handler(id, url, msg, collective_data, start_event):
                     recv = await websocket.recv()
                     ts = time.time_ns()  # universial local ts
                     response_ = Response(id, ts)
-                    #logging.info(recv)
                     current_time = time.time()  # for ping pong
                     
                     if isinstance(recv, bytes) :
@@ -58,147 +50,65 @@ async def ws_handler(id, url, msg, collective_data, start_event):
                         
                         if decompress_data.find("ping") > 0:
                             pong = decompress_data[(decompress_data.find("ping")+6) :  decompress_data.find(',')]
-                            print(f"pong : {pong} " )     
+                            logging.info(f"pong : {pong} for {id} " )     
                             # Create and send the pong response
                             pong_message = {"pong": int(pong)}
                             await websocket.send(json.dumps(pong_message))
 
-                        '''
-                        # try :
-                            
-                        #     response["local_ts"] = ts
-                        #     new_data =  {"bids" : float(response["tick"]["bids"][0][0]), "asks" : float(response["tick"]["asks"][0][0])}  # !!!
-                        #     response["exchange"] = "htx"
-                            
-                        #     collective_data.put(response_)
-                        #     #print(response)
-                        #     #collective_data.loc[ts] = {"bids" : float(response["tick"]["bids"][0][0]), "asks" : float(response["tick"]["asks"][0][0])}
-
-                        # except websockets.exceptions.ConnectionClosedError as e:
-                        #     print(f"Connection failed to connect: {e}")   
-                        #     raise e 
-                            
-                            
-                        # except Exception as e :
-                        #     print(f"error {e} at htx")
-                        #     print(f"errpr msg : {decompress_data}")
-                            
-                        
-                        #     if "ping" in response.keys():
-                        #         # Extract the ping timestamp
-                        #         ping_timestamp = response["ping"]
-                        #         pong = decompress_data[(decompress_data.find("ping")+6) :  decompress_data.find(',')]
-                        #         print("pong " ,  pong )     
-                        #         # Create and send the pong response
-                        #         pong_message = {"pong": int(pong)}
-                        #         await websocket.send(json.dumps(pong_message))
-                        #         #print(f"Sent pong msg: {pong_message}")
-                        '''  
-
                     else :
                         # other exchanges
-                        
-                        response_.data = recv
-                        collective_data.put(response_)
+                        response_.data = recv  # raw msg
+                        collective_data.put(response_)  # tuck into queue
 
-                    if current_time - start_time >= 540 :   # 9 mins
+                    if current_time - start_time >= 60 :   # 1 mins
                        # ping-pong
                         if id == "gateio" :
                             ping_msg = {"time" : f"{int(current_time)}", "channel" : "futures.ping"}
-                            await websocket.send(json.dumps(ping_msg))
                             logging.info(f"Sent: {ping_msg}")
-
+                            await websocket.send(json.dumps(ping_msg))
+                            
                         elif id == "bybit" : 
                             ping_msg = { "op": "ping"}
-                            await websocket.send(json.dumps(ping_msg))
                             logging.info(f"Sent: {ping_msg}")
+                            await websocket.send(json.dumps(ping_msg))
 
-
-                        start_time = current_time  # update time
+                        start_time = current_time  # update ping-pong start time
                         
-                        '''
-                        try :
-                            #ts = time.time_ns()
-                            response["local_ts"] = ts
-                            if id == "gateio" :
-                                 
-                                    response_ = Response("gateio", ts, response)
-                                    new_data =  {"bids" : float(response["result"]["b"]), "asks" : float(response["result"]["a"])}
-                                    response["exchange"] = "gateio"
-                                    collective_data.put(response)
-                                    #print(response)
-                                    #collective_data.loc[ts] = {"bids" : float(response["result"]["b"]), "asks" : float(response["result"]["a"])}
-                                
-                            elif id == "bybit":
-                                
-                                
-                                try :
-                                
-                                    response["exchange"] = "bybit"
-                                    response["data"]['a'][0][0] =  float(response["data"]['a'][0][0])
-                                    response["data"]['b'][0][0] =  float(response["data"]['b'][0][0])
-                                    #collective_data.loc[ts] = {"bids" : float(best_bid), "asks" : float(best_ask)}
-                                    #new_data = {"bids" : best_bid, "asks" : best_ask}
-                                    collective_data.put(response_)
-                                    #print(response)
-                                    response_ = Response("bybit", ts, response)
-                                except IndexError as e :
-                                    # bids or asks is missing
-                                    print(f"error {e} at bybit")
-                                    print(f"error msg : {response}")
-                                    if response["data"]['b'] != []:
-                                        response["data"]['b'][0][0] =  float(response["data"]['b'][0][0])
-                                    if  response["data"]['a'] != []:
-                                        response["data"]['a'][0][0] =  float(response["data"]['a'][0][0])
-                                    
-                                    # new_data = {"bids" : float(best_bid), "asks" : float(best_ask)}
-                                    response["exchange"] = "bybit"
-                                    response_ = Response("bybit", ts, response)
-                                    collective_data.put(response_)
-                                    #print(response)
-                                    #collective_data.loc[ts] = {"bids" : float(best_bid), "asks" : float(best_ask)}
-                                    
-                            elif id == "bitget":
-                                
-                                response["data"][0]['bids'][0][0] = float(response["data"][0]['bids'][0][0])
-                                response["data"][0]['asks'][0][0] = float(response["data"][0]['asks'][0][0])
-                                #new_data =  {"bids" : float(response["data"][0]['bids'][0][0]), "asks" :  float(response["data"][0]['asks'][0][0])}
-                                response["exchange"] = "bitget"
-                                response_ = Response("bitget", ts, response)
-                                collective_data.put(response_)
-                                #print(response)
-                                #collective_data.loc[ts] = {"bids" : float(response["data"][0]['bids'][0][0]), "asks" :  float(response["data"][0]['asks'][0][0])}
-
-                        except websockets.exceptions.ConnectionClosedError as e:
-                            print(f"Connection failed to start: {e}")   
-                            raise e 
-
-                        except Exception as e :
-                            print(f"error {e} at {id}")
-                            print(f"error msg : {response}")
-                        '''
-               
                                     
         except websockets.exceptions.ConnectionClosedError as e:
-            logging.info(f"reconnect for {id}") 
+            logging.info(f"reconnect for {id} err msg is {e}") 
+            await asyncio.sleep(1)
+        
+        except websockets.exceptions.ConnectionClosedOK:
+            logging.info("Connection closed gracefully (1001). Retrying...")
+            await asyncio.sleep(1)
 
-        except asyncio.TimeoutError:
-            print(f"Timeout occurred for {id}. Retrying...")
-            await asyncio.sleep(5)  
+        except asyncio.TimeoutError as e:
+            logging.info(f"Timeout occurred for {id}, err msg is {e} , reconnecting ")
+            await asyncio.sleep(1)  
             
                 
-    return
 
 def send_websocket_request(thread_id, ws_url, message, df, start_event):
     asyncio.run(ws_handler(thread_id, ws_url, message, df, start_event))
 
+def search_data_cnt (directory) :
+    file_list =  os.listdir(directory)
+    biggest_file = 0  # default 
+    
+    for f in file_list :
+        if int(f[ : f.find('.')]) > biggest_file:
+            biggest_file = int(f[ : f.find('.')]) # update biggest file 
 
+    print(f"file of biggest {biggest_file}")
+    return biggest_file
 
 def production_thread(target_currency, base_currency="USDT"):
     # main thread
     
     start_event = threading.Event()
     ts = time.time_ns()
+
     threads = []
     ids = ["bitget", "htx", "gateio", "bybit"]
     urls = [ "wss://ws.bitget.com/v2/ws/public", 
@@ -223,17 +133,15 @@ def production_thread(target_currency, base_currency="USDT"):
     logging.info("All threads are ready. Starting in 1 seconds...")
     start_time = int(time.time())
     last_write_time = start_time
+
     current_date = datetime.now().strftime("%Y-%m-%d")
     directory = Path(f"./data/{target_currency}/{current_date}")
     directory.mkdir(parents=True, exist_ok=True)
     current_directory = Path.cwd()
     start_event.set()  # Signal threads to start
     
-    # main thread to collecting data
-    
-    data_cnt = 0
+    data_cnt = search_data_cnt(directory)
     log_cnt = 0
-    # duration = 10
     try :
 
         while True :
