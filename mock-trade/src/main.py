@@ -13,7 +13,7 @@ import asyncio
 from collections import deque
 
 
-async def ws_handler(exchange_id, url, msg, collective_data, start_event):
+async def ws_handler(exchange_id, url, msg, collective_data, quote_queue, start_event):
     print(f"{exchange_id} thread is ready to start")
     trade_cnt = 0
     start_event.wait()  # hold for start singal
@@ -54,6 +54,10 @@ async def ws_handler(exchange_id, url, msg, collective_data, start_event):
                                 curr_data = {'value' :decompress_data, 'ts' :current_time, 'exchange' : exchange_id}
                                 if _PHASE == 1 :
                                     collective_data.pop()  # pop
+                                    if quote_queue :
+                                        quote_queue.pop()  # pop
+                                    quote_queue.appendleft(curr_data)  # push 
+                    
                                 collective_data.appendleft(curr_data)  # push 
                                
                         except KeyError as e :
@@ -66,6 +70,10 @@ async def ws_handler(exchange_id, url, msg, collective_data, start_event):
                             curr_data = {'value' :recv, 'ts' :current_time, 'exchange' : exchange_id} 
                             if _PHASE == 1 :
                                 collective_data.pop()  # push
+                                if quote_queue :
+                                    quote_queue.pop()  # pop
+                                quote_queue.appendleft(curr_data)  # push 
+
                             collective_data.appendleft(curr_data)
 
                         except KeyError as e :
@@ -101,8 +109,8 @@ async def ws_handler(exchange_id, url, msg, collective_data, start_event):
             await asyncio.sleep(1)  
             
             
-def send_websocket_request(exchange_id, ws_url, message, df, start_event):
-    asyncio.run(ws_handler(exchange_id, ws_url, message, df, start_event))
+def send_websocket_request(exchange_id, ws_url, message, deque, queue, start_event):
+    asyncio.run(ws_handler(exchange_id, ws_url, message, deque, queue, start_event))
 
 def parse_market_data(market_data_deque) :
     market_data_list = list(market_data_deque)  # copy to list 
@@ -145,7 +153,10 @@ def parse_market_data(market_data_deque) :
     # logging.info(f"market data for htx : {data_htx}")
     # logging.info(f"market data for gateio : {data_gateio}")
     calcu_signal(exchange_data_list)
+
+    return calcu_signal(exchange_data_list)
     #upper_threasold, lower_threshold= calcu_signal(data_htx, data_gateio)
+   
    
 def clean_market_data(market_datas) :
     max_start = 0
@@ -178,10 +189,10 @@ def calcu_signal(market_data_list) :
     logging.info(spread)
     mean = np.mean(spread)
     std = np.std(spread)
-    _THRESHOLD = mean + std * 3
+   
     logging.info(f"current mean : {mean} and std : {std}")
-    
-
+    # print(mean, std, _THRESHOLD)
+    return mean + std * 3 
 
     
 
@@ -200,26 +211,27 @@ if __name__ == "__main__" :
             {"sub" :f"market.{target_currency}-{base_currency}.depth.step0", "id" : "test0"},
             {"time" : ts, "channel" : "futures.book_ticker", "event" : "subscribe", "payload" : [f"{target_currency}_{base_currency}"]},
             ] 
-    data_deque = deque(maxlen=150000)  # usgin deque
+    data_deque = deque(maxlen=150000)  # using deque
+    quote_deque = [deque(maxlen=5), deque(maxlen=5)]
     lock = threading.Lock()
     start_event_for_thread = threading.Event()
 
     logging.basicConfig(
-    filename="./mock-trade/logs/output.log",  # Log file name
-    filemode="w",           # Overwrite the file on each run, use "a" for append
-    level=logging.INFO,    # Set the log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
-    format="%(asctime)s - %(levelname)s - %(message)s"  # Log message format
+        filename="./mock-trade/logs/output.log",  # Log file name
+        filemode="w",           # Overwrite the file on each run, use "a" for append
+        level=logging.INFO,    # Set the log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+        format="%(asctime)s - %(levelname)s - %(message)s"  # Log message format
     )
 
     # start !
     threads = []
     _PHASE = 0
-    _THRESHOLD = 0
+   
     
 
     for i in range(2):
         
-        thread = threading.Thread(target=send_websocket_request, args=(exchanges[i], urls[i], msgs[i], data_deque, start_event_for_thread))
+        thread = threading.Thread(target=send_websocket_request, args=(exchanges[i], urls[i], msgs[i], data_deque, quote_deque[i], start_event_for_thread))
         threads.append(thread)
         thread.start()
 
@@ -236,10 +248,15 @@ if __name__ == "__main__" :
                 market_data = copy.deepcopy(data_deque)
                 
             # parse market data
-            parse_market_data(market_data)
+            test_start = time.time_ns()
+            threshold = parse_market_data(market_data)
+            print(f"Time Lapse : {time.time_ns() - test_start} and threshold : {threshold}")
+            if quote_deque :
+                print(f"latest quote : {quote_deque[0][-1]}")
           
 
             # trade 
+            
           
             start_time = time.time_ns()  # update start time
 
