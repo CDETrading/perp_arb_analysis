@@ -54,9 +54,9 @@ async def ws_handler(exchange_id, url, msg, collective_data, quote_queue, start_
                                 curr_data = {'value' :decompress_data, 'ts' :current_time, 'exchange' : exchange_id}
                                 if _PHASE == 1 :
                                     collective_data.pop()  # pop
-                                    if quote_queue :
-                                        quote_queue.pop()  # pop
-                                    quote_queue.appendleft(curr_data)  # push 
+                                    if quote_queue.qsize() > 0  :
+                                        quote_queue.get()  # pop
+                                    quote_queue.put(curr_data)  # push 
                     
                                 collective_data.appendleft(curr_data)  # push 
                                
@@ -70,9 +70,9 @@ async def ws_handler(exchange_id, url, msg, collective_data, quote_queue, start_
                             curr_data = {'value' :recv, 'ts' :current_time, 'exchange' : exchange_id} 
                             if _PHASE == 1 :
                                 collective_data.pop()  # push
-                                if quote_queue :
-                                    quote_queue.pop()  # pop
-                                quote_queue.appendleft(curr_data)  # push 
+                                if quote_queue.qsize() > 0  :
+                                    quote_queue.get()  # pop
+                                quote_queue.put(curr_data)  # push 
 
                             collective_data.appendleft(curr_data)
 
@@ -145,11 +145,11 @@ def parse_market_data(market_data_deque) :
         except KeyError as e:
             logging.info(f"Keyerror happen at {market_data_list[i]['exchange']} , {e}")
 
-    logging.info(f"market data  for htx : {len(data_htx)} and {data_htx}")
-    logging.info(f"market data for gateio : {len(data_gateio)} and {data_gateio}")
+    #logging.info(f"market data  for htx : {len(data_htx)} and {data_htx}")
+    #logging.info(f"market data for gateio : {len(data_gateio)} and {data_gateio}")
     exchange_data_list = [data_htx, data_gateio]
     exchange_data_list = clean_market_data(exchange_data_list)
-    logging.info(exchange_data_list)
+    #logging.info(exchange_data_list)
     # logging.info(f"market data for htx : {data_htx}")
     # logging.info(f"market data for gateio : {data_gateio}")
     calcu_signal(exchange_data_list)
@@ -157,7 +157,29 @@ def parse_market_data(market_data_deque) :
     return calcu_signal(exchange_data_list)
     #upper_threasold, lower_threshold= calcu_signal(data_htx, data_gateio)
    
-   
+
+def parse_single_mareket_data(market_data) :
+    try : 
+        current_data_point = json.loads(market_data['value'])
+        #time_stamp.append(market_data_list[i]['ts'])
+        parsed_data_point = []
+        if market_data['exchange'] == 'htx' :
+            parsed_data_point = [(current_data_point['tick']['asks'][0][0], current_data_point['tick']['asks'][0][1]),
+                                    (current_data_point['tick']['bids'][0][0], current_data_point['tick']['bids'][0][1])]
+            
+            
+        elif market_data['exchange'] == 'gateio' :
+            parsed_data_point = [(float(current_data_point['result']['a']), float(current_data_point['result']['A'])),
+                                    (float(current_data_point['result']['b']), float(current_data_point['result']['B']))]
+                
+        return parsed_data_point        
+            
+           
+    except KeyError as e:
+        logging.info(f"Keyerror happen at {market_data['exchange']} , {e}")
+        
+        return -1
+
 def clean_market_data(market_datas) :
     max_start = 0
     
@@ -174,7 +196,7 @@ def clean_market_data(market_datas) :
     for index, data in enumerate(market_datas)  :
         data = data[max_start : ]
         market_datas[index] = data
-        logging.info(f"fix data {market_datas[index]}")
+        #logging.info(f"fix data {market_datas[index]}")
 
     return market_datas
     
@@ -186,13 +208,13 @@ def calcu_signal(market_data_list) :
     bid_quote = market_data_list[1][:, 1, 0]
     spread = ask_quote / bid_quote
     #logging.info(f"spread : {spread}")
-    logging.info(spread)
+    #logging.info(spread)
     mean = np.mean(spread)
     std = np.std(spread)
    
     logging.info(f"current mean : {mean} and std : {std}")
     # print(mean, std, _THRESHOLD)
-    return mean + std * 3 
+    return mean + std * 3 , mean
 
     
 
@@ -212,7 +234,7 @@ if __name__ == "__main__" :
             {"time" : ts, "channel" : "futures.book_ticker", "event" : "subscribe", "payload" : [f"{target_currency}_{base_currency}"]},
             ] 
     data_deque = deque(maxlen=150000)  # using deque
-    quote_deque = [deque(maxlen=5), deque(maxlen=5)]
+    quote_queue = [queue.Queue(maxsize=5), queue.Queue(maxsize=5)]
     lock = threading.Lock()
     start_event_for_thread = threading.Event()
 
@@ -225,19 +247,21 @@ if __name__ == "__main__" :
 
     # start !
     threads = []
+    total_profit = 0
     _PHASE = 0
    
     
 
     for i in range(2):
         
-        thread = threading.Thread(target=send_websocket_request, args=(exchanges[i], urls[i], msgs[i], data_deque, quote_deque[i], start_event_for_thread))
+        thread = threading.Thread(target=send_websocket_request, args=(exchanges[i], urls[i], msgs[i], data_deque, quote_queue[i], start_event_for_thread))
         threads.append(thread)
         thread.start()
 
     start_event_for_thread.set()  # start to listen to WS
     start_time = time.time_ns() # trading start sign
     while True:
+        # receive data cycle
         #print(f" data size : {len(data_deque)}")
        
        
@@ -245,25 +269,105 @@ if __name__ == "__main__" :
             _PHASE = 1
             # copy market data
             with lock :
-                market_data = copy.deepcopy(data_deque)
+                market_data = copy.deepcopy(data_deque)  # copy from dequeue
                 
             # parse market data
-            test_start = time.time_ns()
-            threshold = parse_market_data(market_data)
-            print(f"Time Lapse : {time.time_ns() - test_start} and threshold : {threshold}")
-            if quote_deque :
-                print(f"latest quote : {quote_deque[0][-1]}")
-          
+            ask = 0
+            bid = 0
+            order_ask = 0
+            order_bid = 0
+            orders_existed = False
+            converged = False
+            curr_spread = 0
+            print('start to trade')
+            threshold, mean = parse_market_data(market_data)
+            print(f'threshold is : {threshold}')
+            trade_start_time = time.time_ns()
+            while True :
+                # trade-cycle
+                #print(f"Time Lapse : {time.time_ns() - trade_start_time} and threshold : {threshold}")
+                
+                if quote_queue[0].qsize() > 0  :
+                    ask = parse_single_mareket_data(quote_queue[0].get())[0][0]
+                    #print(f"latest quote ask: {ask}")
+                else :
+                    continue
+                if quote_queue[1].qsize() > 0  :
+                    bid = parse_single_mareket_data(quote_queue[0].get())[1][0]
+                    #print(f"latest quote bid: {bid}")
+                else :
+                    continue
 
-            # trade 
-            
+                if not converged :
+                    curr_spread = ask / bid 
+                    if not orders_existed :
+                    
+                        #print(f"current spread : {curr_spread}")
+                        if curr_spread >= threshold:
+                            # short-long
+                            # make order
+                            # latency trade 
+                            orders_existed = True
+                            print("ordered !")
+                            time.sleep(0.00004)  # 40 - 50 micro-secs
+                    else :
+                        # pending orders
+                        if order_ask == 0 :
+                            # making order (consider latency)
+                            order_ask = ask
+                            order_bid = bid
+                        else :
+                            # check spread
+                            if curr_spread <= mean :
+                                print(f"converge !")
+                                converged = True
+                                time.sleep(0.00004)  # 40 - 50 micro-secs
+                else :
+                    short_result = ((order_ask - ask) * order_ask) * 100
+                    long_result = ((bid - order_bid) * order_bid) * 100 
+                    curr_result = short_result+long_result
+                    total_profit += short_result+long_result
+                    print(f"result : short : {short_result}% | long : {long_result}% => total : {(short_result+long_result)}%")
+                    logging.info(f"result : short : {short_result}% | long : {long_result}% => total : {curr_result}%")
+                    order_ask = 0
+                    order_bid = 0
+                    orders_existed = False
+                    converged = False
+
+
+
+
+
+                if time.time_ns() - trade_start_time >= 3000000000 :
+                    print("current trade window close")
+                    if orders_existed and orders_existed > 0 :
+                        # not converge during curent pending orders
+                        print(f"not converge during curent pending orders => orders cancel")
+                        logging.info(f"not converge during curent pending orders => orders cancel")
+                        short_result = ((order_ask - ask) * order_ask) * 100
+                        long_result = ((bid - order_bid) * order_bid) * 100 
+                        curr_result = short_result+long_result
+                        total_profit += short_result+long_result
+                        print(f"forced result : short : {short_result}% | long : {long_result}% => total : {(short_result+long_result)}%")
+                        logging.info(f"forced result : short : {short_result}% | long : {long_result}% => total : {curr_result}%")
+
+                    break
+
+            print("next trading window")
+            if time.time_ns() - start_time >= 1800000000000 :
+                print("end 0.5 hr testing period")
+                logging.info(f"total proft for 0.5 hr : {total_profit}")
+               
           
-            start_time = time.time_ns()  # update start time
+            #start_time = time.time_ns()  # update start time
+
 
     for thread in threads:
         thread.join()
 
 
 # phase 1 / 2 design => done 
-# list(queue) mechanism
+# list(queue) mechanism => better solution ?
 # ping response check => done
+# define trade window => done
+# latency trading => 40 - 50 ms => ok ?
