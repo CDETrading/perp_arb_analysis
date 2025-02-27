@@ -12,6 +12,9 @@ import websockets
 import asyncio 
 from collections import deque
 
+_PHASE = 0  # switch for collecting real-time WS ticker data
+
+
 
 async def ws_handler(exchange_id, url, msg, collective_data, quote_queue, start_event):
     print(f"{exchange_id} thread is ready to start")
@@ -29,6 +32,8 @@ async def ws_handler(exchange_id, url, msg, collective_data, quote_queue, start_
                 logging.info(f"Sent: {msg}")
                 
                 while True :
+
+                  
                     # Receive a response
                     recv = await websocket.recv()
                     current_time = time.time_ns() 
@@ -46,7 +51,7 @@ async def ws_handler(exchange_id, url, msg, collective_data, quote_queue, start_
                             if decompress_data.find("ping") > 0:
                                 # Create and send the pong response
                                 pong = decompress_data[(decompress_data.find("ping")+6) :  decompress_data.find(',')]
-                                logging.info(f"pong : {pong} for {exchange_id} " )     
+                                #logging.info(f"pong : {pong} for {exchange_id} " )     
                                 pong_message = {"pong": int(pong)}
                                 await websocket.send(json.dumps(pong_message))
                         
@@ -84,23 +89,23 @@ async def ws_handler(exchange_id, url, msg, collective_data, quote_queue, start_
                        # ping-pong
                         if id == "gateio" :
                             ping_msg = {"time" : f"{int(current_time)}", "channel" : "futures.ping"}
-                            logging.info(f"Sent: {ping_msg} for {exchange_id}")
+                            #logging.info(f"Sent: {ping_msg} for {exchange_id}")
                             await websocket.send(json.dumps(ping_msg))
                             
                         elif id == "bybit" : 
                             ping_msg = { "op": "ping"}
-                            logging.info(f"Sent: {ping_msg} for {exchange_id}")
+                            #logging.info(f"Sent: {ping_msg} for {exchange_id}")
                             await websocket.send(json.dumps(ping_msg))
 
                         start_time = current_time  # update ping-pong start time
                         
-                        
+                    
                                     
         except websockets.exceptions.ConnectionClosedError as e:
             logging.info(f"reconnect for {exchange_id} err msg is {e}") 
             await asyncio.sleep(1)
         
-        except websockets.exceptions.ConnectionClosedOK:
+        except websockets.exceptions.ConnectionClosedOK as e :
             logging.info(f"Connection closed gracefully (1001) for {exchange_id} err msg is {e}")
             await asyncio.sleep(1)
 
@@ -241,8 +246,6 @@ if __name__ == "__main__" :
     # start !
     threads = []  # list for WS worker thread
     total_profit = 0  # record ToT profit for testing entire period 
-    _PHASE = 0  # switch for collecting real-time WS ticker data
-   
     
 
     for i in range(2):
@@ -258,7 +261,7 @@ if __name__ == "__main__" :
         #print(f" data size : {len(data_deque)}")
        
        
-        if time.time_ns() - start_time >= 10000000000 :
+        if time.time_ns() - start_time >= 3600000000000 :
             _PHASE = 1
            
             # ====== main overhead happen ======= # 
@@ -331,7 +334,7 @@ if __name__ == "__main__" :
                     converged = False
 
 
-                if time.time_ns() - trade_start_time >= 3000000000 :
+                if time.time_ns() - trade_start_time >= 1200000000000 :
                     print("current trade window close")
                     if orders_existed and order_ask > 0 :
                         # not converge during curent pending orders
