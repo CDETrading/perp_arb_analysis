@@ -340,7 +340,7 @@ if __name__ == "__main__" :
 
                 if time.time_ns() - trade_start_time >= 3000000000 :
                     print("current trade window close")
-                    if orders_existed and orders_existed > 0 :
+                    if orders_existed and order_ask > 0 :
                         # not converge during curent pending orders
                         print(f"not converge during curent pending orders => orders cancel")
                         logging.info(f"not converge during curent pending orders => orders cancel")
