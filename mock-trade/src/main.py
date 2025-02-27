@@ -145,17 +145,11 @@ def parse_market_data(market_data_deque) :
         except KeyError as e:
             logging.info(f"Keyerror happen at {market_data_list[i]['exchange']} , {e}")
 
-    #logging.info(f"market data  for htx : {len(data_htx)} and {data_htx}")
-    #logging.info(f"market data for gateio : {len(data_gateio)} and {data_gateio}")
+
     exchange_data_list = [data_htx, data_gateio]
     exchange_data_list = clean_market_data(exchange_data_list)
-    #logging.info(exchange_data_list)
-    # logging.info(f"market data for htx : {data_htx}")
-    # logging.info(f"market data for gateio : {data_gateio}")
-    calcu_signal(exchange_data_list)
-
+   
     return calcu_signal(exchange_data_list)
-    #upper_threasold, lower_threshold= calcu_signal(data_htx, data_gateio)
    
 
 def parse_single_mareket_data(market_data) :
@@ -196,7 +190,6 @@ def clean_market_data(market_datas) :
     for index, data in enumerate(market_datas)  :
         data = data[max_start : ]
         market_datas[index] = data
-        #logging.info(f"fix data {market_datas[index]}")
 
     return market_datas
     
@@ -204,16 +197,16 @@ def calcu_signal(market_data_list) :
    
     market_data_list[0] = np.array(market_data_list[0])
     market_data_list[1] = np.array(market_data_list[1])
+
     ask_quote = market_data_list[0][:, 0, 0]
     bid_quote = market_data_list[1][:, 1, 0]
+
     spread = ask_quote / bid_quote
-    #logging.info(f"spread : {spread}")
-    #logging.info(spread)
     mean = np.mean(spread)
     std = np.std(spread)
    
     logging.info(f"current mean : {mean} and std : {std}")
-    # print(mean, std, _THRESHOLD)
+
     return mean + std * 3 , mean
 
     
@@ -246,9 +239,9 @@ if __name__ == "__main__" :
     )
 
     # start !
-    threads = []
-    total_profit = 0
-    _PHASE = 0
+    threads = []  # list for WS worker thread
+    total_profit = 0  # record ToT profit for testing entire period 
+    _PHASE = 0  # switch for collecting real-time WS ticker data
    
     
 
@@ -267,8 +260,10 @@ if __name__ == "__main__" :
        
         if time.time_ns() - start_time >= 10000000000 :
             _PHASE = 1
-            # copy market data
+           
+            # ====== main overhead happen ======= # 
             with lock :
+                # copy market data
                 market_data = copy.deepcopy(data_deque)  # copy from dequeue
                 
             # parse market data
@@ -279,37 +274,38 @@ if __name__ == "__main__" :
             orders_existed = False
             converged = False
             curr_spread = 0
+
             print('start to trade')
             threshold, mean = parse_market_data(market_data)
             print(f'threshold is : {threshold}')
+
+            # ====== main overhead happen ======= # 
+
             trade_start_time = time.time_ns()
             while True :
-                # trade-cycle
-                #print(f"Time Lapse : {time.time_ns() - trade_start_time} and threshold : {threshold}")
-                
+                # trade-cycle                
                 if quote_queue[0].qsize() > 0  :
+                    # htx ask-bid 
                     ask = parse_single_mareket_data(quote_queue[0].get())[0][0]
-                    #print(f"latest quote ask: {ask}")
                 else :
                     continue
                 if quote_queue[1].qsize() > 0  :
+                    # gateio ask-bid
                     bid = parse_single_mareket_data(quote_queue[0].get())[1][0]
-                    #print(f"latest quote bid: {bid}")
                 else :
                     continue
 
                 if not converged :
-                    curr_spread = ask / bid 
+                    curr_spread = ask / bid  # current spread 
                     if not orders_existed :
                     
-                        #print(f"current spread : {curr_spread}")
                         if curr_spread >= threshold:
                             # short-long
-                            # make order
+                            # placing orders
                             # latency trade 
                             orders_existed = True
                             print("ordered !")
-                            time.sleep(0.00004)  # 40 - 50 micro-secs
+                            time.sleep(0.00004)  # 40 - 50 micro-secs (consider above overhead)
                     else :
                         # pending orders
                         if order_ask == 0 :
@@ -321,10 +317,10 @@ if __name__ == "__main__" :
                             if curr_spread <= mean :
                                 print(f"converge !")
                                 converged = True
-                                time.sleep(0.00004)  # 40 - 50 micro-secs
+                                time.sleep(0.00004)  # 40 - 50 micro-secs (consider above overhead)
                 else :
-                    short_result = ((order_ask - ask) * order_ask) * 100
-                    long_result = ((bid - order_bid) * order_bid) * 100 
+                    short_result = ((order_ask - ask) / order_ask) * 100
+                    long_result = ((bid - order_bid) / order_bid) * 100 
                     curr_result = short_result+long_result
                     total_profit += short_result+long_result
                     print(f"result : short : {short_result}% | long : {long_result}% => total : {(short_result+long_result)}%")
@@ -335,20 +331,17 @@ if __name__ == "__main__" :
                     converged = False
 
 
-
-
-
                 if time.time_ns() - trade_start_time >= 3000000000 :
                     print("current trade window close")
                     if orders_existed and order_ask > 0 :
                         # not converge during curent pending orders
                         print(f"not converge during curent pending orders => orders cancel")
                         logging.info(f"not converge during curent pending orders => orders cancel")
-                        short_result = ((order_ask - ask) * order_ask) * 100
-                        long_result = ((bid - order_bid) * order_bid) * 100 
+                        short_result = ((order_ask - ask) / order_ask) * 100
+                        long_result = ((bid - order_bid) / order_bid) * 100 
                         curr_result = short_result+long_result
                         total_profit += short_result+long_result
-                        print(f"forced result : short : {short_result}% | long : {long_result}% => total : {(short_result+long_result)}%")
+                        print(f"forced result : short : {short_result}% | long : {long_result}% => total : {curr_result}%")
                         logging.info(f"forced result : short : {short_result}% | long : {long_result}% => total : {curr_result}%")
 
                     break
@@ -356,18 +349,13 @@ if __name__ == "__main__" :
             print("next trading window")
             if time.time_ns() - start_time >= 1800000000000 :
                 print("end 0.5 hr testing period")
-                logging.info(f"total proft for 0.5 hr : {total_profit}")
+                logging.info(f"total proft for 0.5 hr : {total_profit}%")
+                break
                
           
-            #start_time = time.time_ns()  # update start time
-
 
     for thread in threads:
         thread.join()
+        logging.info("All threads joined")
+        print("Testing finished")
 
-
-# phase 1 / 2 design => done 
-# list(queue) mechanism => better solution ?
-# ping response check => done
-# define trade window => done
-# latency trading => 40 - 50 ms => ok ?
