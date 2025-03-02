@@ -16,7 +16,7 @@ _PHASE = 0  # switch for collecting real-time WS ticker data
 
 
 
-async def ws_handler(exchange_id, url, msg, collective_data, quote_queue, start_event):
+async def ws_handler(exchange_id, url, msg, collective_data, quote_queue, start_event, lock ):
     print(f"{exchange_id} thread is ready to start")
     trade_cnt = 0
     start_event.wait()  # hold for start singal
@@ -57,13 +57,14 @@ async def ws_handler(exchange_id, url, msg, collective_data, quote_queue, start_
                         
                             else :
                                 curr_data = {'value' :decompress_data, 'ts' :current_time, 'exchange' : exchange_id}
-                                if _PHASE == 1 :
-                                    collective_data.pop()  # pop
-                                    if quote_queue.qsize() > 0  :
-                                        quote_queue.get()  # pop
-                                    quote_queue.put(curr_data)  # push 
-                    
-                                collective_data.appendleft(curr_data)  # push 
+                                with lock : 
+                                    if _PHASE == 1 :
+                                        collective_data.pop()  # pop
+                                        if quote_queue.qsize() > 0  :
+                                            quote_queue.get()  # pop
+                                        quote_queue.put(curr_data)  # push 
+                        
+                                    collective_data.appendleft(curr_data)  # push 
                                
                         except KeyError as e :
                             print(f"keyerror happen {e} for {exchange_id}")
@@ -73,13 +74,14 @@ async def ws_handler(exchange_id, url, msg, collective_data, quote_queue, start_
                         # non-binary data
                         try :
                             curr_data = {'value' :recv, 'ts' :current_time, 'exchange' : exchange_id} 
-                            if _PHASE == 1 :
-                                collective_data.pop()  # push
-                                if quote_queue.qsize() > 0  :
-                                    quote_queue.get()  # pop
-                                quote_queue.put(curr_data)  # push 
+                            with lock : 
+                                if _PHASE == 1 :
+                                    collective_data.pop()  # push
+                                    if quote_queue.qsize() > 0  :
+                                        quote_queue.get()  # pop
+                                    quote_queue.put(curr_data)  # push 
 
-                            collective_data.appendleft(curr_data)
+                                collective_data.appendleft(curr_data)
 
                         except KeyError as e :
                             print(f"keyerror happen {e} doe {exchange_id}")
@@ -114,8 +116,8 @@ async def ws_handler(exchange_id, url, msg, collective_data, quote_queue, start_
             await asyncio.sleep(1)  
             
             
-def send_websocket_request(exchange_id, ws_url, message, deque, queue, start_event):
-    asyncio.run(ws_handler(exchange_id, ws_url, message, deque, queue, start_event))
+def send_websocket_request(exchange_id, ws_url, message, deque, queue, start_event, lock):
+    asyncio.run(ws_handler(exchange_id, ws_url, message, deque, queue, start_event, lock))
 
 def parse_market_data(market_data_deque) :
     market_data_list = list(market_data_deque)  # copy to list 
@@ -250,7 +252,7 @@ if __name__ == "__main__" :
 
     for i in range(2):
         
-        thread = threading.Thread(target=send_websocket_request, args=(exchanges[i], urls[i], msgs[i], data_deque, quote_queue[i], start_event_for_thread))
+        thread = threading.Thread(target=send_websocket_request, args=(exchanges[i], urls[i], msgs[i], data_deque, quote_queue[i], start_event_for_thread, lock))
         threads.append(thread)
         thread.start()
 
@@ -286,16 +288,20 @@ if __name__ == "__main__" :
 
             trade_start_time = time.time_ns()
             while True :
-                # trade-cycle                
-                if quote_queue[0].qsize() > 0  :
-                    # htx ask-bid 
-                    ask = parse_single_mareket_data(quote_queue[0].get())[0][0]
-                else :
-                    continue
-                if quote_queue[1].qsize() > 0  :
-                    # gateio ask-bid
-                    bid = parse_single_mareket_data(quote_queue[0].get())[1][0]
-                else :
+                # trade-cycle      
+                try :           
+                    if quote_queue[0].qsize() > 0  :
+                        # htx ask-bid 
+                        ask = parse_single_mareket_data(quote_queue[0].get())[0][0]
+                    else :
+                        continue
+                    if quote_queue[1].qsize() > 0  :
+                        # gateio ask-bid
+                        bid = parse_single_mareket_data(quote_queue[0].get())[1][0]
+                    else :
+                        continue
+                except TypeError as e :
+                    logging.info(f"Type error {e}")
                     continue
 
                 if not converged :
