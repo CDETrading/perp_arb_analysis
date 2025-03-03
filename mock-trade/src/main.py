@@ -276,9 +276,12 @@ if __name__ == "__main__" :
             bid = 0
             order_ask = 0
             order_bid = 0
+            curr_spread = 0
             orders_existed = False
             converged = False
-            curr_spread = 0
+            order_time = 0
+            converge_time = 0
+
 
             print('start to trade')
             threshold, mean = parse_market_data(market_data)
@@ -312,32 +315,37 @@ if __name__ == "__main__" :
                             # short-long
                             # placing orders
                             # latency trade 
+                            order_time = time.time_ns()  # order time 
                             orders_existed = True
                             print("ordered !")
-                            time.sleep(0.00004)  # 40 - 50 micro-secs (consider above overhead)
+
                     else :
                         # pending orders
-                        if order_ask == 0 :
+                        if order_ask == 0 and time.time_ns() - order_time >= 40000000:
                             # making order (consider latency)
                             order_ask = ask
                             order_bid = bid
+                           
                         else :
                             # check spread
                             if curr_spread <= mean :
+                                converge_time = time.time_ns()
                                 print(f"converge !")
                                 converged = True
-                                time.sleep(0.00004)  # 40 - 50 micro-secs (consider above overhead)
+                               
                 else :
-                    short_result = ((order_ask - ask) / order_ask) * 100
-                    long_result = ((bid - order_bid) / order_bid) * 100 
-                    curr_result = short_result+long_result
-                    total_profit += short_result+long_result
-                    print(f"result : short : {short_result}% | long : {long_result}% => total : {(short_result+long_result)}%")
-                    logging.info(f"result : short : {short_result}% | long : {long_result}% => total : {curr_result}%")
-                    order_ask = 0
-                    order_bid = 0
-                    orders_existed = False
-                    converged = False
+                    if time.time_ns() - converge_time >= 40000000 :
+                        # make converge order
+                        short_result = ((order_ask - ask) / order_ask) * 100
+                        long_result = ((bid - order_bid) / order_bid) * 100 
+                        curr_result = short_result+long_result
+                        total_profit += short_result+long_result
+                        print(f"result : short : {short_result}% | long : {long_result}% => total : {(short_result+long_result)}%")
+                        logging.info(f"result : short : {short_result}% | long : {long_result}% => total : {curr_result}%")
+                        order_ask = 0
+                        order_bid = 0
+                        orders_existed = False
+                        converged = False
 
 
                 if time.time_ns() - trade_start_time >= 1200000000000 :
@@ -356,9 +364,9 @@ if __name__ == "__main__" :
                     break
 
             print("next trading window")
-            if time.time_ns() - start_time >= 1800000000000 :
-                print("end 0.5 hr testing period")
-                logging.info(f"total proft for 0.5 hr : {total_profit}%")
+            if time.time_ns() - start_time >= 3600000000000 :
+                print("end 1 hr testing period")
+                logging.info(f"total proft for 1 hr : {total_profit}%")
                 break
                
           
