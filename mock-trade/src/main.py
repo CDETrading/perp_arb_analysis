@@ -366,7 +366,7 @@ if __name__ == "__main__" :
             print("next trading window")
             if time.time_ns() - start_time >= 3600000000000 :
                 print("end 1 hr testing period")
-                logging.info(f"total proft for 1 hr : {total_profit}%")
+                logging.info(f"Current total proft is : {total_profit}%")
                 break
                
           
