@@ -267,6 +267,7 @@ if __name__ == "__main__" :
             _PHASE = 1
            
             # ====== main overhead happen ======= # 
+            overhead_ts = time.time_ns()
             with lock :
                 # copy market data
                 market_data = copy.deepcopy(data_deque)  # copy from dequeue
@@ -286,7 +287,7 @@ if __name__ == "__main__" :
             print('start to trade')
             threshold, mean = parse_market_data(market_data)
             print(f'threshold is : {threshold}')
-
+            logging.info(f"overhead cost : {time.time_ns()-overhead_ts}")
             # ====== main overhead happen ======= # 
 
             trade_start_time = time.time_ns()
@@ -309,6 +310,7 @@ if __name__ == "__main__" :
 
                 if not converged :
                     curr_spread = ask / bid  # current spread 
+                    print(f"current : {curr_spread} vs threshold : {threshold} vs mean : {mean} ")
                     if not orders_existed :
                     
                         if curr_spread >= threshold:
@@ -321,12 +323,13 @@ if __name__ == "__main__" :
 
                     else :
                         # pending orders
-                        if order_ask == 0 and time.time_ns() - order_time >= 40000000:
+                        if order_ask == 0 and time.time_ns() - order_time >= 40000:
                             # making order (consider latency)
                             order_ask = ask
                             order_bid = bid
+                            continue
                            
-                        else :
+                        elif  order_ask > 0 :
                             # check spread
                             if curr_spread <= mean :
                                 converge_time = time.time_ns()
@@ -334,14 +337,14 @@ if __name__ == "__main__" :
                                 converged = True
                                
                 else :
-                    if time.time_ns() - converge_time >= 40000000 :
+                    if time.time_ns() - converge_time >= 40000 :
                         # make converge order
-                        short_result = ((order_ask - ask) / order_ask) * 100
-                        long_result = ((bid - order_bid) / order_bid) * 100 
+                        short_result = (((order_ask - ask) / order_ask) - 0.00064) * 100   # taker
+                        long_result = (((bid - order_bid) / order_bid) - 0.000288) * 100   # taker
                         curr_result = short_result+long_result
-                        total_profit += short_result+long_result
+                        total_profit += curr_result
                         print(f"result : short : {short_result}% | long : {long_result}% => total : {(short_result+long_result)}%")
-                        logging.info(f"result : short : {short_result}% | long : {long_result}% => total : {curr_result}%")
+                        logging.info(f"result : short : {short_result}% | long : {long_result}% => total : {curr_result}% | current spread : {curr_spread}, mean : {mean}, threshold : {threshold}")
                         order_ask = 0
                         order_bid = 0
                         orders_existed = False
@@ -354,20 +357,22 @@ if __name__ == "__main__" :
                         # not converge during curent pending orders
                         print(f"not converge during curent pending orders => orders cancel")
                         logging.info(f"not converge during curent pending orders => orders cancel")
-                        short_result = ((order_ask - ask) / order_ask) * 100
-                        long_result = ((bid - order_bid) / order_bid) * 100 
+                        short_result = (((order_ask - ask) / order_ask) - 0.00064) * 100
+                        long_result = (((bid - order_bid) / order_bid) - 0.000288) * 100 
                         curr_result = short_result+long_result
-                        total_profit += short_result+long_result
+                        total_profit += curr_result
                         print(f"forced result : short : {short_result}% | long : {long_result}% => total : {curr_result}%")
-                        logging.info(f"forced result : short : {short_result}% | long : {long_result}% => total : {curr_result}%")
+                        logging.info(f"forced result : short : {short_result}% | long : {long_result}% => total : {curr_result}% | current spread : {curr_spread}, mean : {mean} threshold : {threshold}")
 
                     break
 
             print("next trading window")
-            if time.time_ns() - start_time >= 3600000000000 :
-                print("end 1 hr testing period")
-                logging.info(f"Current total proft is : {total_profit}%")
-                break
+            current_ts = time.time_ns()
+            if current_ts - start_time >= 3600000000000 :
+                logging.info("end 1 hr testing period")
+                logging.info(f"Accumulated total proft is : {total_profit}%")
+                start_time = current_ts  # update
+                
                
           
 
