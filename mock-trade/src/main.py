@@ -14,8 +14,6 @@ from collections import deque
 
 _PHASE = 0  # switch for collecting real-time WS ticker data
 
-
-
 async def ws_handler(exchange_id, url, msg, collective_data, quote_queue, start_event, lock ):
     print(f"{exchange_id} thread is ready to start")
     trade_cnt = 0
@@ -114,8 +112,7 @@ async def ws_handler(exchange_id, url, msg, collective_data, quote_queue, start_
         except asyncio.TimeoutError as e:
             logging.info(f"Timeout occurred for {exchange_id}, err msg is {e} err msg is {e}")
             await asyncio.sleep(1)  
-            
-            
+                     
 def send_websocket_request(exchange_id, ws_url, message, deque, queue, start_event, lock):
     asyncio.run(ws_handler(exchange_id, ws_url, message, deque, queue, start_event, lock))
 
@@ -132,6 +129,7 @@ def parse_market_data(market_data_deque) :
             if market_data_list[i]['exchange'] == 'htx' :
                 parsed_data_point = [(current_data_point['tick']['asks'][0][0], current_data_point['tick']['asks'][0][1]),
                                      (current_data_point['tick']['bids'][0][0], current_data_point['tick']['bids'][0][1])]
+                # forward filling
                 data_htx.append(parsed_data_point)
                 if len(data_gateio) == 0 :
                     data_gateio.append(float('nan'))
@@ -141,7 +139,7 @@ def parse_market_data(market_data_deque) :
             elif market_data_list[i]['exchange'] == 'gateio' :
                 parsed_data_point = [(float(current_data_point['result']['a']), float(current_data_point['result']['A'])),
                                        (float(current_data_point['result']['b']), float(current_data_point['result']['B']))]
-                
+                # forward filling
                 data_gateio.append(parsed_data_point)
                 if len(data_htx) == 0 :
                     data_htx.append(float('nan'))
@@ -152,13 +150,11 @@ def parse_market_data(market_data_deque) :
         except KeyError as e:
             logging.info(f"Keyerror happen at {market_data_list[i]['exchange']} , {e}")
 
-
     exchange_data_list = [data_htx, data_gateio]
     exchange_data_list = clean_market_data(exchange_data_list)
    
     return calcu_signal(exchange_data_list)
    
-
 def parse_single_mareket_data(market_data) :
     try : 
         current_data_point = json.loads(market_data['value'])
@@ -199,24 +195,22 @@ def clean_market_data(market_datas) :
         market_datas[index] = data
 
     return market_datas
-    
+ 
 def calcu_signal(market_data_list) :
-   
+    # extract ask-data from htx
+    # extract bid-data from gateio
     market_data_list[0] = np.array(market_data_list[0])
     market_data_list[1] = np.array(market_data_list[1])
-
     ask_quote = market_data_list[0][:, 0, 0]
     bid_quote = market_data_list[1][:, 1, 0]
 
-    spread = ask_quote / bid_quote
+    spread = ask_quote / bid_quote  # ask-bid spread
     mean = np.mean(spread)
     std = np.std(spread)
    
     logging.info(f"current mean : {mean} and std : {std}")
 
-    return mean + std * 3 , mean
-
-    
+    return mean + std * 3.5 , mean
 
 if __name__ == "__main__" :
     
@@ -228,16 +222,17 @@ if __name__ == "__main__" :
             "wss://api.hbdm.com/linear-swap-ws",
             "wss://fx-ws.gateio.ws/v4/ws/usdt",
             ] 
-    ts = time.time_ns()  # for subscribe
+    ts = time.time_ns()  # for subscribtion timestamp
     msgs = [
             {"sub" :f"market.{target_currency}-{base_currency}.depth.step0", "id" : "test0"},
             {"time" : ts, "channel" : "futures.book_ticker", "event" : "subscribe", "payload" : [f"{target_currency}_{base_currency}"]},
             ] 
-    data_deque = deque(maxlen=150000)  # using deque
-    quote_queue = [queue.Queue(maxsize=5), queue.Queue(maxsize=5)]
-    lock = threading.Lock()
-    start_event_for_thread = threading.Event()
+    data_deque = deque(maxlen=150000)  # using deque for collecting data
+    quote_queue = [queue.Queue(maxsize=5), queue.Queue(maxsize=5)]  # for collecting best bid-ask for trading window 
+    lock = threading.Lock()  # threading lock 
+    start_event_for_thread = threading.Event()  # start singal for worker threads
 
+    # logging config
     logging.basicConfig(
         filename="./mock-trade/logs/output.log",  # Log file name
         filemode="w",           # Overwrite the file on each run, use "a" for append
@@ -245,54 +240,48 @@ if __name__ == "__main__" :
         format="%(asctime)s - %(levelname)s - %(message)s"  # Log message format
     )
 
-    # start !
     threads = []  # list for WS worker thread
-    total_profit = 0  # record ToT profit for testing entire period 
-    
-
+    total_profit = 0  # record ToT profit for entire trading period 
+    # working threading start
     for i in range(2):
         
         thread = threading.Thread(target=send_websocket_request, args=(exchanges[i], urls[i], msgs[i], data_deque, quote_queue[i], start_event_for_thread, lock))
         threads.append(thread)
         thread.start()
 
-    start_event_for_thread.set()  # start to listen to WS
-    start_time = time.time_ns() # trading start sign
+    start_event_for_thread.set() # start to listen to WS
+    start_time = time.time_ns()  # trading starting time
+    
     while True:
-        # receive data cycle
-        #print(f" data size : {len(data_deque)}")
        
-       
-        if time.time_ns() - start_time >= 3600000000000 :
+        if time.time_ns() - start_time >= 6000000000000 :
             _PHASE = 1
            
             # ====== main overhead happen ======= # 
             overhead_ts = time.time_ns()
             with lock :
-                # copy market data
                 market_data = copy.deepcopy(data_deque)  # copy from dequeue
                 
+            ask = 0  # best ask
+            bid = 0  # best bid
+            order_ask = 0  # ordered ask 
+            order_bid = 0  # ordered bid
+            curr_spread = 0  # current spread
+            orders_existed = False  # order switch
+            converged = False  # converge switch
+            order_time = 0  # ordered time
+            converge_time = 0  # cv time
+
+            print('start to parsing')
             # parse market data
-            ask = 0
-            bid = 0
-            order_ask = 0
-            order_bid = 0
-            curr_spread = 0
-            orders_existed = False
-            converged = False
-            order_time = 0
-            converge_time = 0
-
-
-            print('start to trade')
-            threshold, mean = parse_market_data(market_data)
+            threshold, mean = parse_market_data(market_data)  # parsing deque data and calculate mean and threshold
             print(f'threshold is : {threshold}')
-            logging.info(f"overhead cost : {time.time_ns()-overhead_ts}")
-            # ====== main overhead happen ======= # 
-
-            trade_start_time = time.time_ns()
+            logging.info(f"overhead cost : {time.time_ns()-overhead_ts}ns")
+            # ====== main overhead end ======= # 
+            print("start trading window")
+            trade_start_time = time.time_ns()  # trading window start time
             while True :
-                # trade-cycle      
+                # trading window    
                 try :           
                     if quote_queue[0].qsize() > 0  :
                         # htx ask-bid 
@@ -351,10 +340,11 @@ if __name__ == "__main__" :
                         converged = False
 
 
-                if time.time_ns() - trade_start_time >= 1200000000000 :
+                if time.time_ns() - trade_start_time >= 1800000000000 :
                     print("current trade window close")
                     if orders_existed and order_ask > 0 :
                         # not converge during curent pending orders
+                        # force to close pending orders 
                         print(f"not converge during curent pending orders => orders cancel")
                         logging.info(f"not converge during curent pending orders => orders cancel")
                         short_result = (((order_ask - ask) / order_ask) - 0.00064) * 100
@@ -362,19 +352,12 @@ if __name__ == "__main__" :
                         curr_result = short_result+long_result
                         total_profit += curr_result
                         print(f"forced result : short : {short_result}% | long : {long_result}% => total : {curr_result}%")
-                        logging.info(f"forced result : short : {short_result}% | long : {long_result}% => total : {curr_result}% | current spread : {curr_spread}, mean : {mean} threshold : {threshold}")
+                    logging.info(f"forced result : short : {short_result}% | long : {long_result}% => total : {curr_result}% | current spread : {curr_spread}, mean : {mean} threshold : {threshold}")
+                    logging.info("end 100 mins testing period")
+                    logging.info(f"Accumulated total proft is : {total_profit}%")
 
                     break
 
-            print("next trading window")
-            current_ts = time.time_ns()
-            if current_ts - start_time >= 3600000000000 :
-                logging.info("end 1 hr testing period")
-                logging.info(f"Accumulated total proft is : {total_profit}%")
-                start_time = current_ts  # update
-                
-               
-          
 
     for thread in threads:
         thread.join()
