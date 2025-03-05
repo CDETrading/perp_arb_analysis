@@ -170,6 +170,7 @@ picture/
 in-sample-report/
 out-sample-report/
 
+*.Zone.Identifier
 
 # jupyter
 *.ipynb
