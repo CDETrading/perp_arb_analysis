@@ -243,7 +243,7 @@ if __name__ == "__main__" :
     threads = []  # list for WS worker thread
     total_profit = 0  # record ToT profit for entire trading period 
     # working threading start
-    for i in range(2):
+    for i in range(len(exchanges)):
         
         thread = threading.Thread(target=send_websocket_request, args=(exchanges[i], urls[i], msgs[i], data_deque, quote_queue[i], start_event_for_thread, lock))
         threads.append(thread)
@@ -254,7 +254,7 @@ if __name__ == "__main__" :
     
     while True:
        
-        if time.time_ns() - start_time >= 6000000000000 :
+        if time.time_ns() - start_time >= 6000000000000 :  # 100mins
             _PHASE = 1
            
             # ====== main overhead happen ======= # 
@@ -353,7 +353,7 @@ if __name__ == "__main__" :
                         total_profit += curr_result
                         print(f"forced result : short : {short_result}% | long : {long_result}% => total : {curr_result}%")
                     logging.info(f"forced result : short : {short_result}% | long : {long_result}% => total : {curr_result}% | current spread : {curr_spread}, mean : {mean} threshold : {threshold}")
-                    logging.info("end 100 mins testing period")
+                    logging.info("end 30 mins testing period")
                     logging.info(f"Accumulated total proft is : {total_profit}%")
 
                     break

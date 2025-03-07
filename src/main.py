@@ -110,6 +110,7 @@ def production_thread(target_currency, base_currency="USDT"):
     ts = time.time_ns()
 
     threads = []
+    '''
     ids = ["bitget", "htx", "gateio", "bybit"]
     urls = [ "wss://ws.bitget.com/v2/ws/public", 
             "wss://api.hbdm.com/linear-swap-ws",
@@ -121,10 +122,20 @@ def production_thread(target_currency, base_currency="USDT"):
             {"time" : ts, "channel" : "futures.book_ticker", "event" : "subscribe", "payload" : [f"{target_currency}_{base_currency}"]},
             {"op" :"subscribe", "args" : [f"orderbook.1.{target_currency}{base_currency}"],}
             ] 
+    '''
+    ids = ["htx", "gateio"]
+    urls = [ 
+            "wss://api.hbdm.com/linear-swap-ws",
+            "wss://fx-ws.gateio.ws/v4/ws/usdt",
+            ] 
+    msgs = [ 
+            {"sub" :f"market.{target_currency}-{base_currency}.depth.step0", "id" : "test0"},
+            {"time" : ts, "channel" : "futures.book_ticker", "event" : "subscribe", "payload" : [f"{target_currency}_{base_currency}"]},
+            ] 
     sync_queues=  queue.Queue(maxsize=100000) # cross thread sharing queue 
     
     # worker threads to collecting data
-    for i in range(4):
+    for i in range(len(ids)):
         
         thread = threading.Thread(target=send_websocket_request, args=(ids[i], urls[i], msgs[i], sync_queues, start_event))
         threads.append(thread)
@@ -210,9 +221,9 @@ if __name__ == "__main__":
     )
 
 
-    targets = ["ETH", "BTC", "XRP", "DOGE"]
+    targets = [ "XRP", "DOGE"]
     threads = []
-    for i in range(4):
+    for i in range(len(targets)):
         
         thread = threading.Thread(target=production_thread, args=(targets[i], "USDT"))
         threads.append(thread)
