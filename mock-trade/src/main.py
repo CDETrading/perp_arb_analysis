@@ -270,6 +270,8 @@ if __name__ == "__main__" :
             orders_existed = False  # order switch
             converged = False  # converge switch
             order_time = 0  # ordered time
+            order_singal = 0
+            cv_singal = 0
             converge_time = 0  # cv time
 
             print('start to parsing')
@@ -281,7 +283,8 @@ if __name__ == "__main__" :
             print("start trading window")
             trade_start_time = time.time_ns()  # trading window start time
             while True :
-                # trading window    
+                # trading window 
+                curr_ts = time.time_ns()   
                 try :           
                     if quote_queue[0].qsize() > 0  :
                         # htx ask-bid 
@@ -306,34 +309,38 @@ if __name__ == "__main__" :
                             # short-long
                             # placing orders
                             # latency trade 
-                            order_time = time.time_ns()  # order time 
+                            order_time = curr_ts  # order time 
+                            order_singal = order_time
                             orders_existed = True
                             print("ordered !")
 
                     else :
                         # pending orders
-                        if order_ask == 0 and time.time_ns() - order_time >= 40000:
+                        if order_ask == 0 and curr_ts- order_time >= 40000:
                             # making order (consider latency)
                             order_ask = ask
                             order_bid = bid
+                            order_time = curr_ts
                             continue
                            
                         elif  order_ask > 0 :
                             # check spread
                             if curr_spread <= mean :
-                                converge_time = time.time_ns()
+                                converge_time = curr_ts
+                                cv_singal = curr_ts
                                 print(f"converge !")
                                 converged = True
                                
                 else :
-                    if time.time_ns() - converge_time >= 40000 :
+                    if curr_ts- converge_time >= 40000 :
                         # make converge order
+                        converge_time = curr_ts
                         short_result = (((order_ask - ask) / order_ask) - 0.00064) * 100   # taker
                         long_result = (((bid - order_bid) / order_bid) - 0.000288) * 100   # taker
                         curr_result = short_result+long_result
                         total_profit += curr_result
                         print(f"result : short : {short_result}% | long : {long_result}% => total : {(short_result+long_result)}%")
-                        logging.info(f"result : short : {short_result}% | long : {long_result}% => total : {curr_result}% | current spread : {curr_spread}, mean : {mean}, threshold : {threshold}")
+                        logging.info(f"open position at {order_singal}, latency order ts {order_time} and cv_singal at {cv_singal}, lantency close position at {converge_time} , profit is {curr_ts}")
                         order_ask = 0
                         order_bid = 0
                         orders_existed = False
@@ -342,17 +349,17 @@ if __name__ == "__main__" :
 
                 if time.time_ns() - trade_start_time >= 1800000000000 :
                     print("current trade window close")
-                    if orders_existed and order_ask > 0 :
+                    #if orders_existed and order_ask > 0 :
                         # not converge during curent pending orders
                         # force to close pending orders 
-                        print(f"not converge during curent pending orders => orders cancel")
-                        logging.info(f"not converge during curent pending orders => orders cancel")
-                        short_result = (((order_ask - ask) / order_ask) - 0.00064) * 100
-                        long_result = (((bid - order_bid) / order_bid) - 0.000288) * 100 
-                        curr_result = short_result+long_result
-                        total_profit += curr_result
-                        print(f"forced result : short : {short_result}% | long : {long_result}% => total : {curr_result}%")
-                    logging.info(f"forced result : short : {short_result}% | long : {long_result}% => total : {curr_result}% | current spread : {curr_spread}, mean : {mean} threshold : {threshold}")
+                    #     print(f"not converge during curent pending orders => orders cancel")
+                    #     logging.info(f"not converge during curent pending orders => orders cancel")
+                    #     short_result = (((order_ask - ask) / order_ask) - 0.00064) * 100
+                    #     long_result = (((bid - order_bid) / order_bid) - 0.000288) * 100 
+                    #     curr_result = short_result+long_result
+                    #     total_profit += curr_result
+                    #     print(f"forced result : short : {short_result}% | long : {long_result}% => total : {curr_result}%")
+                    # logging.info(f"forced result : short : {short_result}% | long : {long_result}% => total : {curr_result}% | current spread : {curr_spread}, mean : {mean} threshold : {threshold}")
                     logging.info("end 30 mins testing period")
                     logging.info(f"Accumulated total proft is : {total_profit}%")
 
